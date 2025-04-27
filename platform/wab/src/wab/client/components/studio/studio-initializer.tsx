@@ -30,7 +30,7 @@ import { notification } from "antd";
 import { observer } from "mobx-react";
 import React from "react";
 import { Helmet } from "react-helmet";
-import { Route, Switch } from "react-router";
+import { Route, Switch } from "react-router-dom";
 
 type StudioInitializerProps = {
   projectId: string;
@@ -52,6 +52,7 @@ class StudioInitializer_ extends React.Component<
     this.state = {
       studioCtx: undefined,
     };
+    this.contents = this.contents.bind(this);
   }
   componentWillUnmount() {
     // TODO: this code never actually gets to run, because the containing
@@ -185,6 +186,97 @@ class StudioInitializer_ extends React.Component<
     return <style>{`.studio { visibility: hidden; }`}</style>;
   }
 
+  contents({ previewCtx, studioCtx }: { previewCtx: PreviewCtx, studioCtx: StudioCtx }) {
+    const viewCtx = studioCtx.focusedViewCtx();
+    const isFullPreviewMode = previewCtx.full && previewCtx.isLive;
+    console.log("Rendering Studio", {
+      viewCtx,
+      full: previewCtx.full,
+      isLive: previewCtx.isLive,
+    });
+    return providesStudioCtx(studioCtx)(
+      providesViewCtx(viewCtx)(
+        providesPreviewCtx(previewCtx)(
+          <>
+            {!isFullPreviewMode && (
+               <Studio studioCtx={studioCtx}>
+                 <ViewEditor
+                   viewCtx={viewCtx}
+                   studioCtx={studioCtx}
+                   previewCtx={previewCtx}
+                 />
+               </Studio>
+            )}
+            <Switch>
+              <Route
+                exact
+                path={[
+                  UU.project.pattern,
+                  UU.projectSlug.pattern,
+                  UU.projectBranchArena.pattern,
+                ]}
+                render={() => {
+                  return (
+                    // @ts-expect-error
+                    <Helmet>
+                      <body className="no-text-select" />
+                    </Helmet>
+                  );
+                }}
+              />
+              <Route
+                path={UU.projectDocs.pattern}
+                render={() => (
+                  <>
+                    {this.hideStudio()}
+                    <widgets.ObserverLoadable
+                      loader={() =>
+                        importAndRetry(
+                          () =>
+                            import("@/wab/client/components/docs/DocsPortal")
+                        ).then(({ default: DocsPortal }) => DocsPortal)
+                      }
+                      contents={(DocsPortal) => (
+                        <DocsPortal
+                          hostFrameCtx={previewCtx.hostFrameCtx}
+                          studioCtx={studioCtx}
+                        />
+                      )}
+                    />
+                  </>
+                )}
+              />
+              <Route
+                path={[
+                  UU.projectPreview.pattern,
+                  UU.projectFullPreview.pattern,
+                ]}
+                render={() => {
+                  return (
+                    <>
+                      {this.hideStudio()}
+                      <widgets.ObserverLoadable
+                        loader={() =>
+                          importAndRetry(
+                            () =>
+                              import("@/wab/client/components/live/Preview")
+                          ).then(({ default: Preview }) => Preview)
+                        }
+                        contents={(Preview) => (
+                          <Preview studioCtx={studioCtx} />
+                        )}
+                      />
+                    </>
+                  );
+                }}
+              />
+            </Switch>
+          </>
+        )
+      )
+    );
+  }
+
   render() {
     if (!isHostFrame()) {
       notification.error({
@@ -195,106 +287,12 @@ class StudioInitializer_ extends React.Component<
       return null;
     }
 
-    const contents = ({
-      previewCtx,
-      studioCtx,
-    }: {
-      previewCtx: PreviewCtx;
-      studioCtx: StudioCtx;
-    }) => {
-      const viewCtx = studioCtx.focusedViewCtx();
-      const isFullPreviewMode = previewCtx.full && previewCtx.isLive;
-      console.log("Rendering Studio", {
-        viewCtx,
-        full: previewCtx.full,
-        isLive: previewCtx.isLive,
-      });
-      return providesStudioCtx(studioCtx)(
-        providesViewCtx(viewCtx)(
-          providesPreviewCtx(previewCtx)(
-            <>
-              {!isFullPreviewMode && (
-                <Studio studioCtx={studioCtx}>
-                  <ViewEditor
-                    viewCtx={viewCtx}
-                    studioCtx={studioCtx}
-                    previewCtx={previewCtx}
-                  />
-                </Studio>
-              )}
-              <Switch>
-                <Route
-                  exact
-                  path={[
-                    UU.project.pattern,
-                    UU.projectSlug.pattern,
-                    UU.projectBranchArena.pattern,
-                  ]}
-                  render={() => {
-                    return (
-                      // @ts-expect-error
-                      <Helmet>
-                        <body className="no-text-select" />
-                      </Helmet>
-                    );
-                  }}
-                />
-                <Route
-                  path={UU.projectDocs.pattern}
-                  render={() => (
-                    <>
-                      {this.hideStudio()}
-                      <widgets.ObserverLoadable
-                        loader={() =>
-                          importAndRetry(
-                            () =>
-                              import("@/wab/client/components/docs/DocsPortal")
-                          ).then(({ default: DocsPortal }) => DocsPortal)
-                        }
-                        contents={(DocsPortal) => (
-                          <DocsPortal
-                            hostFrameCtx={previewCtx.hostFrameCtx}
-                            studioCtx={studioCtx}
-                          />
-                        )}
-                      />
-                    </>
-                  )}
-                />
-                <Route
-                  path={[
-                    UU.projectPreview.pattern,
-                    UU.projectFullPreview.pattern,
-                  ]}
-                  render={() => {
-                    return (
-                      <>
-                        {this.hideStudio()}
-                        <widgets.ObserverLoadable
-                          loader={() =>
-                            importAndRetry(
-                              () =>
-                                import("@/wab/client/components/live/Preview")
-                            ).then(({ default: Preview }) => Preview)
-                          }
-                          contents={(Preview) => (
-                            <Preview studioCtx={studioCtx} />
-                          )}
-                        />
-                      </>
-                    );
-                  }}
-                />
-              </Switch>
-            </>
-          )
-        )
-      );
-    };
+    const boundContents = this.contents;
+
     return (
       <widgets.ObserverLoadable
         loader={this.init}
-        contents={contents}
+        contents={(initResult) => boundContents(initResult)}
         loadingContents={() => <widgets.StudioPlaceholder />}
       />
     );

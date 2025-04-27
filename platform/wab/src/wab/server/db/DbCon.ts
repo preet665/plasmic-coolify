@@ -44,6 +44,16 @@ export async function ensureDbConnection(
   let connOpts: ConnectionOptions;
   if (typeof dburi === "string") {
     const envPassword = process.env.WAB_DBPASSWORD;
+    const parsedUri = parseDbUri(dburi);
+
+    console.log('[DEBUG] Inside ensureDbConnection:');
+    console.log(`[DEBUG]   name = ${name}`);
+    console.log(`[DEBUG]   dburi type = ${typeof dburi}`);
+    console.log(`[DEBUG]   dburi value = ${dburi}`);
+    console.log(`[DEBUG]   opts?.useEnvPassword = ${opts?.useEnvPassword}`);
+    console.log(`[DEBUG]   process.env.WAB_DBPASSWORD = ${process.env.WAB_DBPASSWORD}`);
+    console.log(`[DEBUG]   envPassword variable = ${envPassword}`);
+
     connOpts = Object.assign(
       {},
       await getConnectionOptions(),
@@ -56,11 +66,17 @@ export async function ensureDbConnection(
           simple_query_mode: process.env.PG_SIMPLE_QUERY_MODE === "true",
         },
       },
-      opts?.useEnvPassword && envPassword
+      // Use envPassword if it's set AND the original URI didn't contain a password.
+      // This prevents overriding a password explicitly set in the URI.
+      envPassword && !parsedUri.password
         ? {
             // We parse dbUri into its component options, instead of specifying
             // `url:`, because we can't use `url:` in combination with `password:`
-            ...parseDbUri(dburi),
+            // Explicitly map parsed values to TypeORM properties
+            host: parsedUri.host || undefined,
+            port: parsedUri.port ? parseInt(parsedUri.port || "5432", 10) : undefined,
+            username: parsedUri.user || undefined, // Map 'user' to 'username'
+            database: parsedUri.database || undefined,
             password: envPassword,
           }
         : {
@@ -70,6 +86,16 @@ export async function ensureDbConnection(
   } else {
     connOpts = dburi;
   }
+
+  console.log('[DEBUG] Attempting database connection with options:');
+  const pgOpts = connOpts as any; // Cast to access properties, assuming postgres
+  console.log(`[DEBUG]   Host: ${pgOpts.host ?? (pgOpts.url ? 'from URL' : 'undefined')}`);
+  console.log(`[DEBUG]   Port: ${pgOpts.port ?? (pgOpts.url ? 'from URL' : 'undefined')}`);
+  console.log(`[DEBUG]   Username: ${pgOpts.username ?? (pgOpts.url ? 'from URL' : 'undefined')}`);
+  console.log(`[DEBUG]   Database: ${pgOpts.database ?? (pgOpts.url ? 'from URL' : 'undefined')}`);
+  console.log(`[DEBUG]   Password Set: ${!!pgOpts.password || !!pgOpts.url}`);
+
+  console.log('[DEBUG] Final connOpts before createConnection:', JSON.stringify(connOpts, null, 2));
 
   return await createConnection({
     ...connOpts,

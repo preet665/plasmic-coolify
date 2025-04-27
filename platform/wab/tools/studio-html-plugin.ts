@@ -52,12 +52,12 @@ export class StudioHtmlPlugin implements RspackPluginInstance {
           );
 
           // Allow our instrumentation to run when the host URL uses HTTP
-          root
-            .querySelector("head")
-            .insertAdjacentHTML(
-              "afterbegin",
-              `<meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">`
-            );
+          // root
+          //   .querySelector("head")
+          //   .insertAdjacentHTML(
+          //     "afterbegin",
+          //     `<meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">`
+          //   );
 
           // Add our own <base> to direct all requests to the main origin.
           root.querySelector("head").insertAdjacentHTML(

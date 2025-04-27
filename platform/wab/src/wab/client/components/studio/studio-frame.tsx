@@ -41,6 +41,7 @@ import { Location } from "history";
 import moize from "moize";
 import * as React from "react";
 import { useEffect } from "react";
+import { useHistory, useLocation } from "react-router-dom";
 
 const whitelistedHosts = [
   "https://studio.plasmic.app",
@@ -63,15 +64,20 @@ const whitelistedHosts = [
   "https://website-git-benjaminflores-brand-2274-homepage-a-3a7667-scaleai.vercel.app",
 ];
 
+export interface StudioFrameProps {
+  projectId: string;
+  refreshStudio: () => Promise<void>;
+}
+
 export function StudioFrame({
   projectId,
   refreshStudio,
-}: {
-  projectId: string;
-  refreshStudio: () => Promise<void>;
-}) {
+}: StudioFrameProps): JSX.Element | null {
+  usePreventDefaultBrowserPinchToZoomBehavior();
   const appCtx = useAppCtx();
   const forceUpdate = useForceUpdate();
+  const history = useHistory();
+  const location = useLocation();
   const [project, setProject] = React.useState<ApiProject>();
   const [branch, setBranch] = React.useState<ApiBranch>();
   const [editorPerm, setEditorPerm] = React.useState(false);
@@ -81,16 +87,21 @@ export function StudioFrame({
   const [fetchProjectCount, setFetchProjectCount] = React.useState(0);
   const [isRefreshingProjectData, setIsRefreshingProjectData] =
     React.useState(false);
+  const [projectError, setProjectError] = React.useState<Error | null>(null);
+  const [permsError, setPermsError] = React.useState<Error | null>(null);
   const refreshProjectAndPerms = React.useCallback(
     () => setFetchProjectCount(fetchProjectCount + 1),
     [fetchProjectCount]
   );
-  const toggleAdminMode = React.useCallback(async (newMode: boolean) => {
-    await appCtx.api.updateSelfAdminMode({
-      adminModeDisabled: newMode,
-    });
-    await refreshStudio();
-  }, []);
+  const toggleAdminMode = React.useCallback(
+    async (newMode: boolean) => {
+      await appCtx.api.updateSelfAdminMode({
+        adminModeDisabled: newMode,
+      });
+      await refreshStudio();
+    },
+    [appCtx, refreshStudio]
+  );
 
   const fetchBranches = React.useCallback(
     moize(
@@ -140,11 +151,11 @@ export function StudioFrame({
     return dispose;
   }, [appCtx, refreshStudio, project]);
 
-  usePreventDefaultBrowserPinchToZoomBehavior();
-
   useEffect(() => {
     const fetchProject = async () => {
       try {
+        setProjectError(null);
+        setPermsError(null);
         setIsRefreshingProjectData(true);
         const [{ projects, perms: permissions }, { trustedHosts }] =
           await Promise.all([
@@ -206,8 +217,12 @@ export function StudioFrame({
         setIsRefreshingProjectData(false);
       } catch (e) {
         setIsRefreshingProjectData(false);
+        if (e instanceof ForbiddenError || e.statusCode === 403) {
+          setProjectError(e);
+        } else {
+          setProjectError(e);
+        }
         if (!appCtx.selfInfo) {
-          // User is not logged and project is not public.
           await appCtx.history.replace(getLoginRouteWithContinuation());
           return;
         }
@@ -225,16 +240,17 @@ export function StudioFrame({
     spawn(fetchProject());
   }, [projectId, setProject, fetchProjectCount]);
 
-  const { topFrameApi, ...topFrameChromeProps } = useTopFrameState({
+  const topFrameState = useTopFrameState({
     appCtx,
     project,
     forceUpdate,
     toggleAdminMode,
+    history: appCtx.history,
   });
 
   useBrowserNotification();
 
-  if (!project) {
+  if (!project || !perms) {
     return null;
   }
 
@@ -285,7 +301,7 @@ export function StudioFrame({
                   spawn(
                     appCtx.api
                       .addTrustedHost(hostOrigin)
-                      .then(() => location.reload())
+                      .then(() => window.location.reload())
                   );
                 }
 
@@ -302,11 +318,10 @@ export function StudioFrame({
     );
   }
 
-  // We send the params via a hash parameter so that the host server cannot see them.
   src.hash = buildPlasmicStudioArgsHash(appCtx.appConfigOverrides);
 
   return (
-    <TopFrameCtxProvider projectId={projectId} topFrameApi={topFrameApi}>
+    <TopFrameCtxProvider projectId={projectId} topFrameApi={topFrameState.topFrameApi}>
       {!untrustedHost && (
         <HostLoadTimeoutPrompt project={project} editorPerm={editorPerm} />
       )}
@@ -319,15 +334,36 @@ export function StudioFrame({
         editorPerm={editorPerm}
         perms={perms}
         refreshStudio={refreshStudio}
-        topFrameApi={topFrameApi}
+        topFrameApi={topFrameState.topFrameApi}
         refreshBranchData={refreshBranchData}
-        {...topFrameChromeProps}
+        {...(({ topFrameApi, ...rest }) => rest)(topFrameState)}
       />
       <iframe
-        className={"studio-frame"}
+        className={`host-frame ${untrustedHost ? "hidden" : ""}`}
+        key={project.hostUrl}
         src={src.toString()}
         onLoad={handleIframeLoad}
-      />
+        onError={(e) => {
+          console.error("Error loading iframe:", e);
+          reportError(new Error("Error loading iframe"));
+        }}
+        sandbox="allow-scripts allow-same-origin"
+        allow="clipboard-read; clipboard-write;"
+      ></iframe>
+      {untrustedHost && (
+        <HostUrlInput
+          className="mv-xlg"
+          hostProtocolSelect={{
+            isDisabled: true,
+            value: src.protocol + "//",
+          }}
+          urlInput={{
+            props: {
+              placeholder: src.host,
+            },
+          }}
+        />
+      )}
     </TopFrameCtxProvider>
   );
 }

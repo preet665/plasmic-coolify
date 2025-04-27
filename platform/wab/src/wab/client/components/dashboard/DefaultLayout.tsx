@@ -23,12 +23,12 @@ import { useBrowserNotification } from "@/wab/client/utils/useBrowserNotificatio
 import { ensure } from "@/wab/shared/common";
 import { TeamId, WorkspaceId } from "@/wab/shared/ApiSchema";
 import { HTMLElementRefOf } from "@plasmicapp/react-web";
-import { Dropdown, Menu } from "antd";
+import { Dropdown, Menu, MenuProps } from "antd";
 import * as _ from "lodash";
 import { observer } from "mobx-react";
 import * as React from "react";
 import { useState } from "react";
-import { useHistory } from "react-router";
+import { matchPath, useHistory } from "react-router-dom";
 
 type DefaultLayoutProps = DefaultDefaultLayoutProps & {
   helpButton: PlasmicDefaultLayout__OverridesType["helpButton"];
@@ -38,12 +38,12 @@ function DefaultLayout_(
   props: DefaultLayoutProps,
   ref: HTMLElementRefOf<"div">
 ) {
-  const history = useHistory();
   const appCtx = useAppCtx();
   const userInfo = ensure(
     appCtx.selfInfo,
     "DefaultLayout requires appCtx to contain user information"
   );
+  const history = useHistory();
 
   const [activeTeam, setActiveTeam] = React.useState<TeamId | undefined>(
     undefined
@@ -95,20 +95,19 @@ function DefaultLayout_(
 
   useBrowserNotification();
 
-  const userMenu = (
-    <Menu>
-      <Menu.Item>
-        <PublicLink href={UU.settings.fill({})}>Settings</PublicLink>
-      </Menu.Item>
-      <Menu.Item
-        onClick={async () => {
-          await appCtx.logout();
-        }}
-      >
-        Sign Out
-      </Menu.Item>
-    </Menu>
-  );
+  const userMenuItems: MenuProps['items'] = [
+    {
+      key: 'settings',
+      label: <PublicLink href={UU.settings.fill({})}>Settings</PublicLink>,
+    },
+    {
+      key: 'signout',
+      label: 'Sign Out',
+      onClick: async () => {
+        await appCtx.logout();
+      },
+    },
+  ];
 
   const brand =
     appCtx.appConfig.brands?.[activeTeam ?? ""] ??
@@ -122,38 +121,35 @@ function DefaultLayout_(
     setShowNewProjectModal(true);
   };
 
-  const projectCreationMenu = React.useMemo(
-    () =>
-      props.newProjectButtonAsDropdown ? (
-        <Menu>
-          {teams.map((team) => (
-            <Menu.ItemGroup title={team.name}>
-              {workspaces
-                .filter((w) => w.team.id === team.id)
-                .map((workspace) => (
-                  <Menu.Item
-                    onClick={() => requestNewProjectCreation(workspace.id)}
-                  >
-                    {workspace.name}
-                  </Menu.Item>
-                ))}
-            </Menu.ItemGroup>
-          ))}
-          {teams.length === 0 && (
-            <Menu.Item
-              onClick={async () => {
-                await promptNewTeam(appCtx, history);
-              }}
-            >
-              No teams - <strong>create a team</strong>
-            </Menu.Item>
-          )}
-        </Menu>
-      ) : (
-        <></>
-      ),
-    [teams, workspaces, props.newProjectButtonAsDropdown]
-  );
+  const projectCreationMenuItems: MenuProps['items'] = React.useMemo(() => {
+    if (!props.newProjectButtonAsDropdown) {
+      return [];
+    }
+
+    const items: MenuProps['items'] = teams.map((team) => ({
+      type: 'group',
+      label: team.name,
+      key: team.id,
+      children: workspaces
+        .filter((w) => w.team.id === team.id)
+        .map((workspace) => ({
+          key: workspace.id,
+          label: workspace.name,
+          onClick: () => requestNewProjectCreation(workspace.id),
+        })),
+    }));
+
+    if (teams.length === 0) {
+      items.push({
+        key: 'create-team',
+        label: <span>No teams - <strong>create a team</strong></span>,
+        onClick: async () => {
+          await promptNewTeam(appCtx, history);
+        },
+      });
+    }
+    return items;
+  }, [teams, workspaces, props.newProjectButtonAsDropdown, requestNewProjectCreation, appCtx, history]);
 
   return (
     <>
@@ -178,18 +174,19 @@ function DefaultLayout_(
         freeTrial={{
           team: trialTeamToShow,
         }}
-        teams={teams.map((t, i) => (
-          <React.Fragment key={t.id}>
-            <NavSeparator />
-            <NavTeamSection
-              name={t.name}
-              href={U.org({ teamId: t.id })}
-              selected={activeTeam === t.id}
-              freeTrial={t.onTrial}
-            >
-              {workspaces
-                .filter((w) => w.team.id === t.id)
-                .map((w) => (
+        teams={teams.map((t, i) => {
+          const teamWorkspaces = workspaces.filter((w) => w.team.id === t.id);
+          const hasWorkspaces = teamWorkspaces.length > 0;
+          return (
+            <React.Fragment key={t.id}>
+              <NavSeparator />
+              <NavTeamSection
+                name={t.name}
+                {...(hasWorkspaces ? {} : { href: U.org({ teamId: t.id }) })}
+                selected={activeTeam === t.id}
+                freeTrial={t.onTrial}
+              >
+                {teamWorkspaces.map((w) => (
                   <NavWorkspaceButton
                     key={w.id}
                     name={w.name}
@@ -197,14 +194,15 @@ function DefaultLayout_(
                     selected={activeWorkspace === w.id}
                   />
                 ))}
-            </NavTeamSection>
-          </React.Fragment>
-        ))}
+              </NavTeamSection>
+            </React.Fragment>
+          );
+        })}
         newProjectButton={
           props.newProjectButtonAsDropdown
             ? {
                 wrap: (newProjectButton) => (
-                  <Dropdown trigger={["click"]} overlay={projectCreationMenu}>
+                  <Dropdown trigger={["click"]} menu={{ items: projectCreationMenuItems }}>
                     {newProjectButton}
                   </Dropdown>
                 ),
@@ -243,7 +241,7 @@ function DefaultLayout_(
           },
           wrap: (node) => (
             <Dropdown
-              overlay={userMenu}
+              menu={{ items: userMenuItems }}
               placement="topLeft"
               trigger={["click"]}
             >

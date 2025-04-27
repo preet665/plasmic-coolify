@@ -64,7 +64,13 @@ import { accessLevelRank } from "@/wab/shared/EntUtil";
 import { getAccessLevelToResource } from "@/wab/shared/perms";
 import { getMaximumTierFromTeams } from "@/wab/shared/pricing/pricing-utils";
 import * as React from "react";
-import { Redirect, Route, Switch, useHistory, useLocation } from "react-router";
+import {
+  Redirect,
+  Route,
+  Switch,
+  useHistory,
+  useLocation,
+} from "react-router-dom";
 
 const LazyTeamAnalytics = React.lazy(() => import("./analytics/TeamAnalytics"));
 const LazyAdminPage = React.lazy(() => import("./pages/admin/AdminPage"));
@@ -93,6 +99,7 @@ function getStarter(
 }
 
 function LoggedInContainer(props: LoggedInContainerProps) {
+  console.log("[LoggedInContainer] Rendering LoggedInContainer");
   const { onRefreshUi } = props;
   const nonAuthCtx = useNonAuthCtx();
   const appCtx = useAppCtx();
@@ -124,6 +131,7 @@ function LoggedInContainer(props: LoggedInContainerProps) {
   const currentLocation = useLocation();
 
   const isWhiteLabeled = !!selfInfo?.isWhiteLabel;
+  console.log("[LoggedInContainer] About to render main Switch");
   return (
     <React.Suspense
       fallback={
@@ -438,7 +446,9 @@ function LoggedInContainer(props: LoggedInContainerProps) {
 }
 
 export function Root() {
+  console.log("[Root] Rendering Root component");
   const history = useHistory();
+  const location = useLocation();
   const [nonAuthCtx, setNonAuthCtx] = React.useState<NonAuthCtx | undefined>(
     undefined
   );
@@ -467,12 +477,13 @@ export function Root() {
             return latestBundleVersion;
           }
         );
+        const router = new Router(history);
         setNonAuthCtx(
           new NonAuthCtx({
             api,
             topFrameApi,
             history,
-            router: new Router(history),
+            router,
             change: forceUpdate,
             bundler,
             lastBundleVersion,
@@ -520,13 +531,13 @@ export function Root() {
         // We are adding no-op event handlers here because of the following:
         //
         // When you addEventListener() in a componentDidMount (say,
-        // pointerdown), it usually but won’t always fire after the same event
+        // pointerdown), it usually but won't always fire after the same event
         // type in your React components (onPointerDown).  It depends entirely
         // on whether React has ever before had to set up that event handler!
-        // If it hasn’t (this is the first time you’ve used onPointerDown in
-        // your app), then React’s will come second.  But if you unmount and
+        // If it hasn't (this is the first time you've used onPointerDown in
+        // your app), then React's will come second.  But if you unmount and
         // then remount the component, the componentDidMount listener will
-        // come second.  So to ensure consistent ordering, make sure you’ve
+        // come second.  So to ensure consistent ordering, make sure you've
         // already used onPointerDown somewhere before.
         //
         // This matters in particular to e.g. SidebarPopup.
@@ -535,10 +546,11 @@ export function Root() {
             key={loaderKey}
             loader={loader}
             contents={(appCtx: /*TWZ*/ AppCtx) => {
+              console.log("[Root] About to render main Switch");
               return providesAppCtx(appCtx)(
                 <NonAuthCtxContext.Provider value={nonAuthCtx}>
                   <div className={"root"} onPointerDown={() => {}}>
-                    <Switch>
+                    <Switch location={location}>
                       <Route
                         exact
                         path={UU.login.pattern}

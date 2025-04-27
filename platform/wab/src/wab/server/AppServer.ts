@@ -483,6 +483,19 @@ function addMiddlewares(
 
   if (!opts?.skipSession) {
     app.use(expressSessionMiddleware as express.Handler);
+
+    // Log session details *after* session middleware, *before* passport.session
+    app.use((req: Request, res: Response, next: NextFunction) => {
+      console.log(`[Session Check] Request path: ${req.path}`);
+      console.log(`[Session Check] req.sessionID: ${req.sessionID}`);
+      console.log(`[Session Check] req.session:`, req.session);
+      // Check if passport data exists in session (set during login)
+      // Use type assertion to access passport property
+      const passportSession = req.session as any;
+      console.log(`[Session Check] req.session?.passport?.user: ${passportSession?.passport?.user}`);
+      next();
+    });
+
     app.use(passport.initialize());
     app.use(passport.session());
   } else {

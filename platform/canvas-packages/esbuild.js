@@ -5,6 +5,7 @@ const fs = require("fs");
 const path = require("path");
 const sha256 = require("sha256");
 const hostlessPkgNames = require("./hostlessList.json");
+const chokidar = require('chokidar');
 
 const inlineCssPlugin = () => {
   return {
@@ -19,6 +20,44 @@ const inlineCssPlugin = () => {
         };
       });
     },
+  };
+};
+
+// Add plugin to handle missing generated-types JSON files
+const missingTypesPlugin = () => {
+  return {
+    name: "esbuild-plugin-missing-types",
+    setup(build) {
+      build.onResolve({ filter: /\.\/generated-types\/.*\.json$/ }, (args) => {
+        return {
+          path: args.path,
+          namespace: 'missing-types'
+        };
+      });
+      
+      build.onLoad({ filter: /.*/, namespace: 'missing-types' }, (args) => {
+        // Return an empty object for missing JSON files
+        return {
+          contents: '{}',
+          loader: 'json'
+        };
+      });
+    }
+  };
+};
+
+// Add plugin to handle incorrect self-imports (missing ./ prefix)
+const selfImportFixPlugin = () => {
+  return {
+    name: "esbuild-plugin-self-import-fix",
+    setup(build) {
+      // Handle bare imports that should be relative
+      build.onResolve({ filter: /^(pluralize|jquery|md5|marked|random|papaparse)$/ }, (args) => {
+        // Instead of trying to handle these with a custom namespace,
+        // let's simply add them as external dependencies
+        return { external: true };
+      });
+    }
   };
 };
 
@@ -152,71 +191,64 @@ const clientConfigs = clientEntries.map(({ pkg, useSubJSXRuntime }) => ({
         });
       },
     },
+    missingTypesPlugin(),
     externalGlobalPlugin({
       react: "__Sub.React",
       "react-dom": "__Sub.ReactDOM",
       "@plasmicapp/host": "__Sub",
+      "@plasmicapp/host/registerComponent": "__Sub.registerComponent",
+      "@plasmicapp/host/registerGlobalContext": "__Sub.registerGlobalContext",
+      "@plasmicapp/host/registerToken": "__Sub.registerToken",
+      "@plasmicapp/host/registerFunction": "__Sub.registerFunction",
       "@plasmicapp/query": "__Sub.PlasmicQuery",
+      "react/jsx-runtime": "__Sub.jsxRuntime",
+      "react/jsx-dev-runtime": "__Sub.jsxDevRuntime",
+      "react-slick": "__Sub.ReactSlick",
+      "@ant-design/react-slick": "__Sub.ReactSlick",
+      "@emotion/styled": "__Sub.emotionStyled",
+      "@emotion/react": "__Sub.emotionReact",
+      "marked": "__Sub.marked",
+      "pluralize": "__Sub.pluralize",
+      "jquery": "__Sub.jquery",
+      "md5": "__Sub.md5",
+      "random": "__Sub.random",
+      "@faker-js/faker": "__Sub.faker",
+      "papaparse": "__Sub.papaparse",
       ...(pkg.includes("plasmic-rich-components") ? antdModules : {}),
       ...(pkg.startsWith("commerce-")
         ? { "@plasmicpkgs/commerce": "__PlasmicCommerceCommon" }
         : {}),
-      ...(useSubJSXRuntime
-        ? {
-            "react/jsx-runtime": "__Sub.jsxRuntime",
-            "react/jsx-dev-runtime": "__Sub.jsxDevRuntime",
-          }
-        : {}),
-    }),
-    alias({
-      "react-slick": path.join(
-        process.cwd(),
-        "node_modules/internal-react-slick/lib/index.js"
-      ),
-      "@ant-design/react-slick": path.join(
-        process.cwd(),
-        "node_modules/internal-react-slick/lib/index.js"
-      ),
-      "@plasmicapp/host/registerComponent": path.join(
-        process.cwd(),
-        "node_modules/@plasmicapp/host/registerComponent/dist/index.esm.js"
-      ),
-      "@plasmicapp/host/registerGlobalContext": path.join(
-        process.cwd(),
-        "node_modules/@plasmicapp/host/registerGlobalContext/dist/index.esm.js"
-      ),
-      "@plasmicapp/host/registerToken": path.join(
-        process.cwd(),
-        "node_modules/@plasmicapp/host/registerToken/dist/index.esm.js"
-      ),
-      "@plasmicapp/host/registerFunction": path.join(
-        process.cwd(),
-        "node_modules/@plasmicapp/host/registerFunction/dist/index.esm.js"
-      ),
-      ...(useSubJSXRuntime
-        ? {}
-        : {
-            "react/jsx-runtime": path.join(
-              process.cwd(),
-              "node_modules/react/jsx-runtime.js"
-            ),
-            "react/jsx-dev-runtime": path.join(
-              process.cwd(),
-              "node_modules/react/jsx-dev-runtime.js"
-            ),
-          }),
     }),
     inlineCssPlugin(),
+    selfImportFixPlugin(),
   ],
   external: [
     "react",
     "react-dom",
     "@plasmicapp/host",
+    "pluralize",
+    "jquery",
+    "random",
+    "register-library",
+    "md5",
+    "copy-to-clipboard",
+    "date-fns",
+    "tinycolor2",
+    "uuid",
+    "isomorphic-fetch",
+    "react/jsx-runtime",
+    "react/jsx-dev-runtime",
+    "react-slick",
+    "@ant-design/react-slick",
+    "@emotion/styled",
+    "@emotion/react",
+    "marked",
+    "@faker-js/faker",
+    "papaparse",
     ...(pkg.includes("plasmic-rich-components")
       ? Object.keys(antdModules)
       : []),
     ...(pkg.startsWith("commerce-") ? ["@plasmicpkgs/commerce"] : []),
-    ...(useSubJSXRuntime ? ["react/jsx-runtime", "react/jsx-dev-runtime"] : []),
   ],
   platform: "browser",
   target: "es2020",
@@ -224,33 +256,45 @@ const clientConfigs = clientEntries.map(({ pkg, useSubJSXRuntime }) => ({
   bundle: true,
   sourcemap: true,
   minify: isProd,
-  watch: watchMode && {
-    onRebuild(error) {
-      if (error) {
-        console.error("watch build failed:", error);
-      } else {
-        console.log("watch build succeeded");
-      }
-    },
-  },
 }));
 
-(isNaN(maybeBuildIndex)
-  ? clientConfigs
-  : [clientConfigs[maybeBuildIndex]]
-).forEach((config) =>
-  esbuild
-    .build(config)
-    .then(() => {
+// Properly handle watching for file changes without using the "watch" option
+async function runClientBuilds() {
+  const configs = isNaN(maybeBuildIndex)
+    ? clientConfigs
+    : [clientConfigs[maybeBuildIndex]];
+  
+  for (const config of configs) {
+    try {
+      const result = await esbuild.build(config);
       if (watchMode) {
-        console.log("watching...");
+        console.log(`Successfully built ${config.outfile}`);
       }
-    })
-    .catch((err) => {
-      // console.error(err);
-      process.exit(1);
-    })
-);
+    } catch (err) {
+      console.error(`Error building ${config.outfile}:`, err.message);
+      if (!watchMode) {
+        process.exit(1);
+      }
+    }
+  }
+  
+  if (watchMode) {
+    console.log("watching...");
+    
+    // Replace fs.watch with chokidar.watch
+    const srcDir = path.join(process.cwd(), 'src');
+    chokidar.watch(srcDir, {
+      persistent: true,
+      ignoreInitial: true
+    }).on('all', (eventType, filepath) => {
+      console.log(`File ${filepath} changed, rebuilding...`);
+      runClientBuilds();
+    });
+  }
+}
+
+// Run client builds
+runClientBuilds();
 
 // We also use esbuild to build server-side packages, which are used for upgrading
 // hostless packages via PublishHostless or for creating new hostless packages
@@ -267,6 +311,46 @@ const serverConfigs = hostlessPkgNames.map((pkg) => ({
   target: "node14",
   bundle: true,
   minify: isProd,
+  plugins: [
+    missingTypesPlugin(),
+    selfImportFixPlugin()
+  ],
+  external: [
+    "register-library",
+    "@plasmicapp/host/registerComponent",
+    "@plasmicapp/host/registerGlobalContext", 
+    "@plasmicapp/host/registerToken",
+    "@plasmicapp/host/registerFunction",
+    "pluralize",
+    "jquery",
+    "md5",
+    "copy-to-clipboard",
+    "date-fns",
+    "tinycolor2",
+    "uuid",
+    "isomorphic-fetch",
+    "react/jsx-runtime",
+    "react/jsx-dev-runtime",
+    "react-slick",
+    "@ant-design/react-slick",
+    "@emotion/styled",
+    "@emotion/react",
+    "marked",
+    "@faker-js/faker",
+    "papaparse"
+  ]
 }));
 
-serverConfigs.forEach((config) => esbuild.build(config));
+// Run server builds
+(async function runServerBuilds() {
+  for (const config of serverConfigs) {
+    try {
+      await esbuild.build(config);
+    } catch (err) {
+      console.error(`Error building ${config.outfile}:`, err.message);
+      if (!watchMode) {
+        process.exit(1);
+      }
+    }
+  }
+})();

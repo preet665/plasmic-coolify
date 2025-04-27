@@ -12,12 +12,38 @@ export function doLogin(
   user: User,
   done: (err: any) => void
 ) {
+  console.log(`[doLogin] ENTER: Attempting login for user ID: ${user.id}. Current sessionID: ${request.sessionID}`);
   spawn(
-    disconnectUserSockets(request).then(() => {
-      request.logIn(user, done);
-      request.analytics.identify(user.id, makeUserTraits(user));
-    })
+    (async () => { // Wrap in async IIFE for better logging context
+      console.log(`[doLogin] Inside spawn for user ID: ${user.id}`);
+      try {
+        console.log(`[doLogin] Calling disconnectUserSockets for user ID: ${user.id}`);
+        await disconnectUserSockets(request);
+        console.log(`[doLogin] disconnectUserSockets completed for user ID: ${user.id}. Calling request.logIn...`);
+        request.logIn(user, (loginErr) => {
+          console.log(`[doLogin] request.logIn callback invoked for user ID: ${user.id}. Error: ${loginErr}`);
+          if (!loginErr) {
+            console.log(`[doLogin] request.logIn successful for user ID: ${user.id}. Calling analytics.identify...`);
+            try {
+              request.analytics.identify(user.id, makeUserTraits(user));
+              console.log(`[doLogin] analytics.identify completed for user ID: ${user.id}.`);
+            } catch (analyticsErr) {
+              console.error(`[doLogin] Error during analytics.identify for user ID: ${user.id}:`, analyticsErr);
+              // Decide if analytics error should prevent login completion? Currently, it doesn't.
+            }
+          }
+          console.log(`[doLogin] Calling original done callback for user ID: ${user.id}.`);
+          done(loginErr); // Call the original done callback
+        });
+        console.log(`[doLogin] Call to request.logIn initiated for user ID: ${user.id}.`);
+      } catch (disconnectErr) {
+        console.error(`[doLogin] Error during disconnectUserSockets for user ID: ${user.id}:`, disconnectErr);
+        done(disconnectErr); // Pass disconnect error to the done callback
+      }
+      console.log(`[doLogin] Exiting spawn block for user ID: ${user.id}.`);
+    })()
   );
+  console.log(`[doLogin] EXIT: Spawn initiated for user ID: ${user.id}.`);
 }
 
 export async function doLogout(request: Request) {

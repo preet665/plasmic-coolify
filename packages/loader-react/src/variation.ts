@@ -16,6 +16,7 @@ export function getPlasmicCookieValues() {
 }
 
 export function updatePlasmicCookieValue(key: string, value: string) {
+  console.log(`Setting plasmic cookie: key=${key}, value=${value}`);
   document.cookie = `plasmic:${key}=${value}`;
 }
 

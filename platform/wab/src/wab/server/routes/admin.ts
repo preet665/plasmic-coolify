@@ -233,6 +233,7 @@ export async function adminLoginAs(req: Request, res: Response) {
     });
   });
   console.log("admin logged in as", getUser(req).email);
+  console.log('Setting cookie: name=plasmic-observer, value="true"');
   res.cookie("plasmic-observer", "true");
   res.json(ensureType<LoginResponse>({ status: true, user }));
 }

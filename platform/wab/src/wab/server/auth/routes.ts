@@ -62,38 +62,79 @@ import { IVerifyOptions } from "passport-local";
 import util from "util";
 
 export function csrf(req: Request, res: Response, _next: NextFunction) {
+  console.log("[Auth Debug] CSRF endpoint called", {
+    sessionID: req.sessionID,
+    hasSession: !!req.session,
+    csrfToken: res.locals._csrf,
+    sessionContent: req.session ? {
+      cookie: req.session.cookie,
+      csrfSecret: (req.session as any)._csrfSecret,
+      passport: (req.session as any).passport
+    } : null,
+    headers: {
+      cookie: req.headers.cookie,
+      authorization: req.headers.authorization
+    }
+  });
+  
   res.json({ csrf: res.locals._csrf });
 }
+
 export async function login(req: Request, res: Response, next: NextFunction) {
-  console.log("logging in as", req.body.email);
+  console.log(`[authRoutes.login] ENTER: Attempting login for email: ${req.body.email}`);
+  console.log("[Auth Debug] Login attempt:", {
+    email: req.body?.email,
+    sessionID: req.sessionID,
+    hasSession: !!req.session
+  });
   await new Promise<void>((resolve) =>
     passport.authenticate(
       "local",
-      (err: Error, user: User, _info: IVerifyOptions) =>
+      (err: Error | null, user: User | false, _info: any) =>
         (async () => {
+          console.log(`[authRoutes.login] passport.authenticate callback invoked. err: ${err}, user: ${user ? user.id : user}`);
           if (err || !user) {
-            console.error("could not log in", user, err);
+            console.error(`[authRoutes.login] Authentication failed. Error: ${err}, User: ${user}`);
+            console.log("[Auth Debug] Login failed - invalid credentials for:", req.body?.email);
             res.json(
               ensureType<LoginResponse>({
                 status: false,
                 reason: "IncorrectLoginError",
               })
             );
+            console.log(`[authRoutes.login] Sent failure response.`);
           } else {
+            console.log(`[authRoutes.login] Authentication successful for user ID: ${user.id}. Calling doLogin...`);
             doLogin(req, user, (err2) => {
+              console.log(`[authRoutes.login] doLogin callback invoked. err2: ${err2}`);
               if (err2) {
+                console.error(`[authRoutes.login] Error from doLogin: ${err2}. Calling next(err2).`);
+                console.error("[Auth Debug] Login session error:", err2);
                 return next(err2);
               }
               console.log(
-                "logged in as",
-                getUser(req, { allowUnverifiedEmail: true }).email
+                `[authRoutes.login] doLogin successful. User from req: ${req.user?.id}. Sending success response.`
               );
+              console.log("[Auth Debug] Login successful for:", user.email, {
+                userId: user.id,
+                sessionID: req.sessionID
+              });
+              // Note: Calling getUser here might be problematic if req.user isn't set yet by doLogin's async nature
+              // console.log(
+              //   "logged in as",
+              //   getUser(req, { allowUnverifiedEmail: true }).email
+              // ); 
               res.json(ensureType<LoginResponse>({ status: true, user }));
             });
+            console.log(`[authRoutes.login] Call to doLogin initiated.`);
           }
-        })().then(() => resolve())
+        })().then(() => {
+            console.log(`[authRoutes.login] passport.authenticate async callback promise resolved.`);
+            resolve();
+        })
     )(req, res, next)
   );
+  console.log(`[authRoutes.login] EXIT: passport.authenticate promise resolved.`);
 }
 
 export async function createUserFull({
@@ -282,17 +323,32 @@ export async function logout(req: Request, res: Response) {
 }
 
 export async function self(req: Request, res: Response) {
-  const dbMgr = userDbMgr(req, { allowUnverifiedEmail: true });
-  const user = getUser(req, { allowUnverifiedEmail: true });
-  console.log("getting self info for", user.email);
-  const usesOauth = await dbMgr.isOauthUser(user.id);
-  res.json(
-    ensureType<SelfResponse>({
-      user,
-      usesOauth,
-      observer: req.cookies?.["plasmic-observer"] === "true",
-    })
-  );
+  console.log("[Auth Debug] self endpoint called", {
+    sessionID: req.sessionID,
+    hasSession: !!req.session,
+    sessionCookie: req.cookies,
+    path: req.path,
+    hasUser: !!req.user,
+    passport: req.session ? (req.session as any).passport : undefined
+  });
+
+  try {
+    const dbMgr = userDbMgr(req, { allowUnverifiedEmail: true });
+    const user = getUser(req, { allowUnverifiedEmail: true });
+    console.log("[Auth Debug] getting self info for", user.email);
+    const usesOauth = await dbMgr.isOauthUser(user.id);
+    
+    res.json(
+      ensureType<SelfResponse>({
+        user,
+        usesOauth,
+        observer: req.cookies?.["plasmic-observer"] === "true",
+      })
+    );
+  } catch (error) {
+    console.error("[Auth Debug] Error in self endpoint:", error);
+    throw error;
+  }
 }
 
 export async function updateSelf(req: Request, res: Response) {
@@ -800,6 +856,11 @@ export function apiAuth(
   res: Response | null,
   next: NextFunction
 ) {
+  // If the request is already authenticated via session (Passport), allow it.
+  if (req.isAuthenticated?.()) {
+    return next();
+  }
+
   // Simply having a projectIdsAndTokens (even if it's empty/invalid) in the
   // body means we don't have to provide more user friendly checks. The actual
   // authorization depends on the specific projects accessed by the API method.
@@ -952,4 +1013,67 @@ export async function getUserAuthIntegrations(req: Request, res: Response) {
       return { name: p.provider, id: p.id };
     }),
   } as ListAuthIntegrationsResponse);
+}
+
+/**
+ * Debug endpoint for troubleshooting authentication and session issues
+ * This can be accessed at /api/v1/auth/debug to get detailed information
+ * about the current session and authentication state
+ */
+export async function debugAuthState(req: Request, res: Response) {
+  console.log("[Auth Debug] Debug endpoint called");
+  
+  // Attempt to refresh the user from the session if it exists
+  let refreshedUser: User | null = null;
+  if (req.session && (req.session as any).passport?.user) {
+    try {
+      const mgr = superDbMgr(req);
+      refreshedUser = await mgr.getUserById((req.session as any).passport.user);
+    } catch (err) {
+      console.error("[Auth Debug] Error refreshing user from session:", err);
+    }
+  }
+  
+  const info = {
+    timestamp: new Date().toISOString(),
+    requestPath: req.path,
+    requestMethod: req.method,
+    requestId: req.id,
+    ipAddress: req.ip,
+    userAgent: req.headers["user-agent"],
+    session: {
+      exists: !!req.session,
+      id: req.sessionID,
+      cookie: req.session?.cookie,
+      csrfSecret: req.session ? (req.session as any)._csrfSecret : null,
+      passport: req.session ? (req.session as any).passport : null
+    },
+    authentication: {
+      hasUser: !!req.user,
+      userFromRequest: req.user ? {
+        id: (req.user as User).id,
+        email: (req.user as User).email,
+        role: (req.user as User).role,
+        waitingEmailVerification: (req.user as User).waitingEmailVerification
+      } : null,
+      refreshedUserFromSession: refreshedUser ? {
+        id: refreshedUser.id,
+        email: refreshedUser.email,
+        role: refreshedUser.role,
+        waitingEmailVerification: refreshedUser.waitingEmailVerification
+      } : null
+    },
+    cookies: req.cookies,
+    headers: {
+      authorization: req.headers.authorization,
+      cookie: req.headers.cookie,
+      "x-plasmic-api-token": req.headers["x-plasmic-api-token"],
+      "x-plasmic-api-session-token": req.headers["x-plasmic-api-session-token"],
+      "x-plasmic-api-project-tokens": req.headers["x-plasmic-api-project-tokens"],
+      "x-plasmic-api-cms-tokens": req.headers["x-plasmic-api-cms-tokens"]
+    }
+  };
+  
+  console.log("[Auth Debug] Debug info:", info);
+  res.json(info);
 }

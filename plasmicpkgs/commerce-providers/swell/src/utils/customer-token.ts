@@ -14,6 +14,7 @@ export const setCustomerToken = (
   if (!token) {
     Cookies.remove(SWELL_CUSTOMER_TOKEN_COOKIE)
   } else {
+    console.log(`Setting Swell cookie: name=${SWELL_CUSTOMER_TOKEN_COOKIE}, value=${token}`);
     Cookies.set(
       SWELL_CUSTOMER_TOKEN_COOKIE,
       token,

@@ -474,16 +474,25 @@ export const CanvasFrame = observer(function CanvasFrame({
           */
           const gatsbyDevModeServiceWorkerFixScript = `
             (() => {
-              const original = navigator.serviceWorker.getRegistrations;
-              navigator.serviceWorker.getRegistrations = () => {
-                // Detecting if this is a gatsby site.
-                if (window._gatsbyEvents) {
-                  return Promise.resolve([]);
-                }
+              // Add a check to ensure serviceWorker exists
+              if (navigator.serviceWorker) {
+                const original = navigator.serviceWorker.getRegistrations;
+                navigator.serviceWorker.getRegistrations = () => {
+                  // Detecting if this is a gatsby site.
+                  if (window._gatsbyEvents) {
+                    return Promise.resolve([]);
+                  }
 
-                // Otherwise use the original implementation.
-                return original.call(navigator.serviceWorker);
-              };
+                  // Otherwise use the original implementation.
+                  // Ensure 'original' is callable before calling
+                  if (typeof original === 'function') {
+                    return original.call(navigator.serviceWorker);
+                  } else {
+                    // Handle case where original is not a function (shouldn't happen here, but safe)
+                    return Promise.resolve([]);
+                  }
+                };
+              }
             })();
           `;
 

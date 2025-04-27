@@ -16,13 +16,22 @@ export default {
       entryFileNames: "loader-hydrate.[hash].js",
       format: "iife",
       sourcemap: true,
+      globals: {
+        react: 'React',
+        'react-dom': 'ReactDOM'
+      }
     },
     {
       file: "build/loader-hydrate.js",
       format: "iife",
       sourcemap: true,
+      globals: {
+        react: 'React',
+        'react-dom': 'ReactDOM'
+      }
     },
   ],
+  external: ['react', 'react-dom'],
   treeshake: {
     moduleSideEffects: false,
   },

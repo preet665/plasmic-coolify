@@ -29,6 +29,7 @@ export const checkoutCreate = async (fetch: any) => {
     secure: true
   }
   if (checkoutUrl) {
+    console.log(`Setting Swell cookie: name=${SWELL_CHECKOUT_URL_COOKIE}, value=${checkoutUrl}`);
     Cookies.set(SWELL_CHECKOUT_URL_COOKIE, checkoutUrl, options)
   }
 

@@ -361,9 +361,20 @@ export abstract class SharedApi {
   }
 
   async getSelfInfo(): Promise<SelfResponse> {
-    const res: SelfResponse = await this.get("/auth/self");
-    this.setUser(res.user);
-    return res;
+    try {
+      console.log("[Auth Debug] Getting self info...");
+      const res: SelfResponse = await this.get("/auth/self");
+      console.log("[Auth Debug] Self info retrieved successfully:", { 
+        userId: res.user?.id,
+        email: res.user?.email,
+        usesOauth: res.usesOauth
+      });
+      this.setUser(res.user);
+      return res;
+    } catch (err) {
+      console.error("[Auth Debug] Error getting self info:", err);
+      throw err;
+    }
   }
 
   async updateSelfInfo(data: UpdateSelfRequest) {
@@ -554,12 +565,25 @@ export abstract class SharedApi {
   }
 
   async login(data: LoginRequest): Promise<LoginResponse> {
-    const res: LoginResponse = await this.post("/auth/login", data, true);
-    if (res.status) {
-      await this.refreshCsrfToken();
-      this.setUser(res.user);
+    console.log("[Auth Debug] Login attempt for:", { email: data.email });
+    try {
+      const res: LoginResponse = await this.post("/auth/login", data, true);
+      console.log("[Auth Debug] Login response:", { 
+        status: res.status,
+        hasUser: res.status && !!res.user,
+        userId: res.status ? res.user?.id : undefined,
+        email: res.status ? res.user?.email : undefined
+      });
+      
+      if (res.status) {
+        await this.refreshCsrfToken();
+        this.setUser(res.user);
+      }
+      return res;
+    } catch (err) {
+      console.error("[Auth Debug] Login error:", err);
+      throw err;
     }
-    return res;
   }
 
   async forgotPassword(
@@ -591,10 +615,15 @@ export abstract class SharedApi {
   }
 
   async logout() {
-    const res = await this.post("/auth/logout");
-    this.clearUser();
-    await this.refreshCsrfToken();
-    return res;
+    console.log("[Auth Debug] Logging out...");
+    try {
+      await this.post("/auth/logout");
+      console.log("[Auth Debug] Logout successful");
+      this.clearUser();
+    } catch (err) {
+      console.error("[Auth Debug] Logout error:", err);
+      this.clearUser();
+    }
   }
 
   async changePassword(
@@ -779,24 +808,32 @@ export abstract class SharedApi {
   protected _csrf?: string;
 
   protected _headers(): { [key: string]: string } {
-    if (this.expectFailure) {
-      return {
-        "x-expect-failure": "true",
-      };
-    } else if (this._csrf) {
-      return { "X-CSRF-Token": this._csrf };
-    } else {
-      return {};
+    const headers: { [key: string]: string } = {
+      "Content-Type": "application/json",
+    };
+    if (this._csrf) {
+      headers["X-CSRF-Token"] = this._csrf;
     }
+    
+    console.log("[Auth Debug] Request headers:", { 
+      hasCsrfToken: !!this._csrf,
+      csrfTokenLength: this._csrf?.length
+    });
+    
+    return headers;
   }
 
   async refreshCsrfToken() {
     try {
+      console.log("[Auth Debug] Refreshing CSRF token...");
       const { csrf } = await this.get("/auth/csrf");
+      console.log("[Auth Debug] CSRF token refreshed successfully:", { tokenLength: csrf?.length });
       this._csrf = csrf;
     } catch (err) {
+      console.error("[Auth Debug] Error refreshing CSRF token:", err);
       if (err instanceof AuthError) {
         // Reload the page and force user to try logging in again
+        console.log("[Auth Debug] Auth error during CSRF refresh, reloading page");
         window.top?.location.reload();
       } else {
         throw err;
@@ -1183,7 +1220,7 @@ export abstract class SharedApi {
   }
 
   async resetTutorialDb(sourceId: string): Promise<any> {
-    return await this.post(`/admin/reset-tutorial-db`, { sourceId });
+    return this.post(`/admin/reset-tutorial-db`, { sourceId });
   }
 
   async adminLoginAs(args: { email: string }): Promise<LoginResponse> {

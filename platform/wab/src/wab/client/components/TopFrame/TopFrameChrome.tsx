@@ -49,7 +49,7 @@ import { LocalizationConfig } from "@/wab/shared/localization";
 import { getAccessLevelToResource } from "@/wab/shared/perms";
 import { canEditUiConfig } from "@/wab/shared/ui-config-utils";
 import { message, notification } from "antd";
-import { Action, Location } from "history";
+import { Action, Location, History } from "history";
 import { ExtendedKeyboardEvent } from "mousetrap";
 import React from "react";
 import { useHistory, useLocation } from "react-router";
@@ -127,8 +127,7 @@ export function TopFrameChrome({
   didShowRegenerateSecretTokenModal,
   ...rest
 }: TopFrameChromeProps) {
-  const location = useLocation();
-  const fullPreview = !!UU.projectFullPreview.parse(location.pathname, false);
+  const fullPreview = !!UU.projectFullPreview.parse(pathname, false);
 
   React.useEffect(() => {
     document.title = `${project.name} - Plasmic`;
@@ -410,14 +409,14 @@ export function useTopFrameState({
   project,
   forceUpdate,
   toggleAdminMode,
+  history,
 }: {
   appCtx: AppCtx;
   project: ApiProject | undefined;
   forceUpdate: () => void;
   toggleAdminMode: (val: boolean) => Promise<void>;
+  history: History | undefined;
 }) {
-  const history = useHistory();
-
   const [latestPublishedVersionData, setLatestPublishedVersionData] =
     React.useState<{ revisionId: string; version: string }>();
   const [revisionNum, setRevisionNum] = React.useState(0);
@@ -447,7 +446,6 @@ export function useTopFrameState({
     TopBarPromptBillingArgs | undefined
   >(undefined);
   const [showAppAuthModal, setShowAppAuthModal] = React.useState(false);
-
   const [noComponents, setNoComponents] = React.useState(true);
   const [subjectComponentInfo, setSubjectComponentInfo] = React.useState<{
     pathOrComponent: string;
@@ -460,7 +458,7 @@ export function useTopFrameState({
     React.useState(false);
   const [localizationScheme, setLocalizationScheme] = React.useState<
     LocalizationConfig | undefined
-  >(undefined);
+  >();
   const [dataSourcePicker, setDataSourcePicker] = React.useState<{
     args: Parameters<TopFrameApi["pickDataSource"]>[0];
     resolve: (
@@ -470,7 +468,6 @@ export function useTopFrameState({
   const [defaultPageRoleId, setDefaultPageRoleId] = React.useState<
     string | null | undefined
   >();
-
   const [onboardingTour, setOnboardingTour] = React.useState<TopFrameTourState>(
     {
       run: false,
@@ -479,43 +476,97 @@ export function useTopFrameState({
     }
   );
 
-  const topFrameApi = React.useMemo<TopFrameApi>(
-    () => ({
+  const topFrameApi = React.useMemo<TopFrameApi | null>(() => {
+    if (!history) {
+      console.warn("[useTopFrameState] History object not yet available, delaying TopFrameApi creation.");
+      return null;
+    }
+
+    console.log("[useTopFrameState] History object available, creating TopFrameApi.");
+    return {
       pushLocation(path, query, hash) {
-        validateNewLocation(path, history.location);
-        history.push({
-          pathname: path,
-          search: query,
-          hash,
-        });
-        forceUpdate();
+        try {
+           validateNewLocation(path, history.location);
+           history.push({
+             pathname: path,
+             search: query,
+             hash,
+           });
+           forceUpdate();
+        } catch(error) {
+           console.error("[TopFrameApi] Error during pushLocation:", error);
+        }
       },
       replaceLocation(path, query, hash) {
-        validateNewLocation(path, history.location);
-        history.replace({
-          pathname: path,
-          search: query,
-          hash,
-        });
-        forceUpdate();
+        if (typeof history.replace !== 'function') {
+          console.error("[TopFrameApi] history.replace is not a function in replaceLocation.");
+          return;
+        }
+        if (typeof history.location !== 'object') {
+          console.error("[TopFrameApi] history.location is not an object in replaceLocation.");
+          return;
+        }
+        try {
+          validateNewLocation(path, history.location);
+          history.replace({
+            pathname: path,
+            search: query,
+            hash,
+          });
+          forceUpdate();
+        } catch (error) {
+          console.error("[TopFrameApi] Error during replaceLocation:", error);
+        }
       },
       registerLocationListener: (listener) => {
-        const historyListener = (location: Location, action: Action) => {
-          // copy into a plain object so that Comlink can transfer it
-          const locationCopy = { ...location };
-          listener(locationCopy, action);
-        };
-        const unregister = history.listen(historyListener);
+        if (typeof history.listen !== 'function') {
+            console.error("[TopFrameApi] history.listen is not a function in registerLocationListener.");
+            return () => { console.warn("[TopFrameApi] No-op unregister returned due to invalid history object.") };
+        }
+        if (typeof listener !== 'function') {
+             console.error("[TopFrameApi] Invalid listener function passed to registerLocationListener:", listener);
+             return () => { console.warn("[TopFrameApi] No-op unregister returned due to invalid listener function.") };
+        }
 
-        // replace host's initial location
-        historyListener(history.location, "REPLACE");
+        try {
+          console.log("[TopFrameApi] History in registerLocationListener:", history);
+          const historyListener = (location: Location, action: Action) => {
+             if (!location || typeof location !== 'object') {
+                 console.error("[TopFrameApi Listener] Invalid location object received:", location);
+                 return;
+             }
+            try {
+              const locationCopy = { ...location };
+              listener(locationCopy, action);
+            } catch (error) {
+              console.error("[TopFrameApi Listener] Error calling provided listener callback:", error);
+            }
+          };
 
-        return unregister;
+          console.log("[TopFrameApi] Registering history listener...");
+          const unregister = history.listen(historyListener);
+          console.log("[TopFrameApi] History listener registered.");
+
+          if (history.location) {
+            console.log("[TopFrameApi] Sending initial location state:", history.location);
+            historyListener(history.location, "REPLACE");
+          } else {
+             console.warn("[TopFrameApi] Cannot send initial location state: history.location is missing.");
+          }
+
+          if (typeof unregister === 'function') {
+              return unregister;
+          } else {
+              console.error("[TopFrameApi] history.listen did not return an unregister function.");
+              return () => { console.warn("[TopFrameApi] No-op unregister returned because history.listen failed.") };
+          }
+
+        } catch (error) {
+          console.error("[TopFrameApi] Error during registerLocationListener:", error);
+          return () => { console.warn("[TopFrameApi] No-op unregister returned due to exception during registration.") };
+        }
       },
-
-      setDocumentTitle: async (val: string) => {
-        document.title = val;
-      },
+      setDocumentTitle: async (val: string) => { document.title = val; },
       setPrimitiveValues: async (vals) => {
         setNoComponents(vals.noComponents);
         setRevisionNum(vals.revisionNum);
@@ -523,28 +574,23 @@ export function useTopFrameState({
         setLocalizationScheme(vals.localizationScheme);
         setDefaultPageRoleId(vals.defaultPageRoleId);
       },
-      setLatestPublishedVersionData: asyncWrapper(
-        setLatestPublishedVersionData
-      ),
-      setSubjectComponentInfo: asyncWrapper(setSubjectComponentInfo),
-      setActivatedBranch: asyncWrapper((x) => {
-        setActivatedBranch(x);
-      }),
-      setMergeModalContext: asyncWrapper(setMergeModalContext),
-      setShowPublishModal: asyncWrapper(setShowPublishModal),
-      setKeepPublishModalOpen: asyncWrapper(setKeepPublishModalOpen),
-      setShowShareModal: asyncWrapper(setShowShareModal),
-      setShowCodeModal: asyncWrapper(setShowCodeModal),
-      setShowProjectNameModal: asyncWrapper(setShowProjectNameModal),
-      setShowCloneProjectModal: asyncWrapper(setShowCloneProjectModal),
-      setShowHostModal: asyncWrapper(setShowHostModal),
-      setShowLocalizationModal: asyncWrapper(setShowLocalizationModal),
-      setShowUiConfigModal: asyncWrapper(setShowUiConfigModal),
-      showRegenerateSecretTokenModal: async () =>
-        setShouldShowRegenerateSecretTokenModal(true),
-      setShowUpsellForm: asyncWrapper(setShowUpsellForm),
-      setShowAppAuthModal: asyncWrapper(setShowAppAuthModal),
-      setOnboardingTour: asyncWrapper(setOnboardingTour),
+      setLatestPublishedVersionData: async (val) => setLatestPublishedVersionData(val),
+      setSubjectComponentInfo: async (val) => setSubjectComponentInfo(val),
+      setActivatedBranch: async (val) => setActivatedBranch(val),
+      setMergeModalContext: async (val) => setMergeModalContext(val),
+      setShowPublishModal: async (val) => setShowPublishModal(val),
+      setKeepPublishModalOpen: async (val) => setKeepPublishModalOpen(val),
+      setShowShareModal: async (val) => setShowShareModal(val),
+      setShowCodeModal: async (val) => setShowCodeModal(val),
+      setShowProjectNameModal: async (val) => setShowProjectNameModal(val),
+      setShowCloneProjectModal: async (val) => setShowCloneProjectModal(val),
+      setShowHostModal: async (val) => setShowHostModal(val),
+      setShowLocalizationModal: async (val) => setShowLocalizationModal(val),
+      setShowUiConfigModal: async (val) => setShowUiConfigModal(val),
+      showRegenerateSecretTokenModal: async () => setShouldShowRegenerateSecretTokenModal(true),
+      setShowUpsellForm: async (val) => setShowUpsellForm(val),
+      setShowAppAuthModal: async (val) => setShowAppAuthModal(val),
+      setOnboardingTour: async (val) => setOnboardingTour(val),
       pickDataSource: async (opts) => {
         return new Promise((resolve) => {
           setDataSourcePicker({ args: opts, resolve });
@@ -554,33 +600,21 @@ export function useTopFrameState({
       },
       toggleAdminMode,
       getCurrentTeam: async () => {
-        if (!project) {
-          return undefined;
-        }
+        if (!project) return undefined;
         return appCtx.getAllTeams().find((team) => team.id === project.teamId);
       },
       canEditProjectUiConfig: async () => {
         const team = appCtx.getAllTeams().find((t) => t.id === project?.teamId);
-        if (!team || !project) {
-          return false;
-        }
-        return canEditUiConfig(
-          team,
-          { type: "project", resource: project },
-          appCtx.selfInfo,
-          appCtx.perms
-        );
+        if (!team || !project) return false;
+        return canEditUiConfig(team, { type: "project", resource: project }, appCtx.selfInfo, appCtx.perms);
       },
       promptBilling: async () => {
         const team = appCtx.getAllTeams().find((t) => t.id === project?.teamId);
-        if (!team || !project) {
-          return;
-        }
+        if (!team || !project) return;
         await getTiersAndPromptBilling(appCtx, team);
       },
-    }),
-    [appCtx, project]
-  );
+    };
+  }, [appCtx, project, history, forceUpdate, toggleAdminMode]);
 
   return {
     topFrameApi,

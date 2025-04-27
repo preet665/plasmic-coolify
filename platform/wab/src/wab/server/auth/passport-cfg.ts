@@ -48,15 +48,21 @@ export async function setupPassport(
   devflags: DevFlagsType
 ) {
   passport.serializeUser<User, any>((user: any, done: any) => {
+    console.log(`[serializeUser] Attempting to serialize user ID: ${user.id}`);
     done(undefined, user.id);
   });
 
   passport.deserializeUser((id: string, done) => {
+    console.log(`[deserializeUser] Attempting to deserialize user with ID: ${id}`);
     asyncToCallback(done, async () => {
       const mgr = new DbMgr(getManager(), SUPER_USER);
       try {
-        return await mgr.getUserById(id);
+        console.log(`[deserializeUser] Fetching user ${id} from DB...`);
+        const user = await mgr.getUserById(id);
+        console.log(`[deserializeUser] Successfully deserialized user: ${user?.email}`);
+        return user;
       } catch (err) {
+        console.error(`[deserializeUser] Error deserializing user ${id}:`, err);
         // Do not use NotFoundError.  This is necessary for now since our global error handler blindly transforms
         // NotFoundErrors into 404s.
         throw new Error(err.message);
@@ -71,23 +77,52 @@ export async function setupPassport(
     new LocalStrategy(
       { usernameField: "email", passReqToCallback: true },
       (req, email, password, done) => {
-        asyncToCallback(done, async () => {
+        (async () => {
+          console.log(`[LocalStrategy] Attempting login for email: ${email}`);
           const mgr = superDbMgr(req);
           const user = await mgr.tryGetUserByEmail(email);
 
           if (!user) {
-            return false;
+            console.log(`[LocalStrategy] User not found for email: ${email}`);
+            return done(null, false, { message: "Incorrect email or password." });
           }
 
-          if (await mgr.comparePassword(user.id, password)) {
-            // Must reset the session to prevent session fixation.
-            if (req.session) {
-              await util.promisify(req.session.regenerate).bind(req.session)();
-            }
-            return user;
+          const passwordMatch = await mgr.comparePassword(user.id, password);
+          console.log(`[LocalStrategy] Password match for ${email}: ${passwordMatch}`);
+
+          if (passwordMatch) {
+            console.log(`[LocalStrategy] Password matched for ${user.email}. Calling req.login...`);
+            req.login(user, async (loginErr) => {
+              if (loginErr) {
+                console.error(`[LocalStrategy] req.login error:`, loginErr);
+                return done(loginErr);
+              }
+              // console.log(`[LocalStrategy] req.login successful. Regenerating session...`);
+              // if (req.session) {
+              //   try {
+              //     await util.promisify(req.session.regenerate).bind(req.session)();
+              //     (req.session as any).passport = { user: user.id };
+              //     await util.promisify(req.session.save).bind(req.session)();
+              //     console.log(`[LocalStrategy] Session regenerated and saved. New sessionID: ${req.sessionID}`);
+              //     return done(null, user);
+              //   } catch (regenErr) {
+              //     console.error(`[LocalStrategy] Session regeneration error:`, regenErr);
+              //     return done(regenErr);
+              //   }
+              // } else {
+              //    console.error("[LocalStrategy] req.session not found after login!");
+              //    return done(new Error("Session not found after login"));
+              // }
+              console.log(`[LocalStrategy] req.login successful for ${user.email}. Session should be established.`);
+              return done(null, user);
+            });
           } else {
-            return false;
+            console.log(`[LocalStrategy] Password mismatch for ${email}.`);
+            return done(null, false, { message: "Incorrect email or password." });
           }
+        })().catch(err => {
+          console.error("[LocalStrategy] Unexpected error:", err);
+          return done(err);
         });
       }
     )

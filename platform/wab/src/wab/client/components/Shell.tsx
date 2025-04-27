@@ -15,6 +15,7 @@ import { createBrowserHistory } from "history";
 import * as React from "react";
 import { OverlayProvider } from "react-aria";
 import * as ReactDOM from "react-dom";
+import { createRoot } from "react-dom/client";
 import { Router } from "react-router-dom";
 
 declare const COMMITHASH: string;
@@ -91,8 +92,14 @@ export function main() {
   (window as any).commithash = COMMITHASH;
 
   const appContainerElement = document.querySelector(".app-container");
+  if (!appContainerElement) {
+      console.error("Fatal: Could not find .app-container element to render into.");
+      return;
+  }
 
   monkeyPatchConsoleLog();
+
+  const root = createRoot(appContainerElement);
 
   if (isTopFrame()) {
     const studioPlaceholder = getStudioPlaceholderElement();
@@ -123,13 +130,12 @@ export function main() {
       }
     });
 
-    ReactDOM.render(<Shell />, appContainerElement);
+    root.render(<Shell />);
   } else {
-    ReactDOM.render(
+    root.render(
       <HostFrameCtxProvider>
         <Shell />
-      </HostFrameCtxProvider>,
-      appContainerElement
+      </HostFrameCtxProvider>
     );
   }
 
@@ -137,6 +143,7 @@ export function main() {
 }
 
 export function Shell() {
+  console.log("[Shell] Rendering Shell component");
   const hostFrameCtx = useHostFrameCtxIfHostFrame();
   const history = hostFrameCtx ? hostFrameCtx.history : createBrowserHistory();
 
@@ -164,11 +171,30 @@ export function Shell() {
       }
     };
 
-    history.listen(onHistoryChange);
-  }, []);
+    // Ensure history object is valid before setting up listener
+    if (history && typeof history.listen === 'function') {
+      const unlisten = history.listen(onHistoryChange);
+      return () => {
+        if (typeof unlisten === 'function') {
+          unlisten();
+        }
+      };
+    } else {
+      console.error("[Shell] Invalid history object or missing listen method");
+      return undefined;
+    }
+  }, [hostFrameCtx, history]);
 
+  console.log("[Shell] About to render Router with history:", history);
+  
+  // Ensure history is valid before rendering Router
+  if (!history) {
+    console.error("[Shell] Cannot render Router: history is undefined");
+    return <div>Error: Unable to initialize navigation</div>;
+  }
+  
   return (
-    // @ts-ignore
+    // @ts-ignore - Using ts-ignore to handle React Router v5 with React 18 compatibility
     <Router history={history}>
       <OverlayProvider style={{ width: "100%", height: "100%" }}>
         <Root />

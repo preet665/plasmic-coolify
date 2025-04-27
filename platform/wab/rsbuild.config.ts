@@ -1,5 +1,7 @@
 import { defineConfig } from "@rsbuild/core";
 import { pluginReact } from "@rsbuild/plugin-react";
+import { pluginLess } from "@rsbuild/plugin-less";
+import { pluginSass } from "@rsbuild/plugin-sass";
 import {
   Compiler,
   CopyRspackPlugin,
@@ -14,7 +16,30 @@ import MonacoWebpackPlugin from "monaco-editor-webpack-plugin";
 import { homepage } from "./package.json";
 import { StudioHtmlPlugin } from "./tools/studio-html-plugin";
 
-const commitHash = execSync("git rev-parse HEAD").toString().slice(0, 6);
+console.log("--- Debugging git rev-parse ---");
+console.log("Current Working Directory:", process.cwd());
+try {
+  console.log("UID:", process.getuid ? process.getuid() : "N/A (Windows?)");
+  console.log("EUID:", process.geteuid ? process.geteuid() : "N/A (Windows?)");
+} catch (e) {
+  console.log("Could not get UID/EUID:", e);
+}
+console.log("PATH:", process.env.PATH);
+const gitCommand = "git rev-parse HEAD";
+console.log("Executing command:", gitCommand);
+let commitHash = "abcdef"; // Default fallback
+try {
+  commitHash = execSync(gitCommand).toString().slice(0, 6);
+  console.log("Successfully got commit hash:", commitHash);
+} catch (error) {
+  console.error("!!! Failed to execute git command:", error);
+  // Keep the default 'abcdef' or consider other error handling
+  // Depending on requirements, you might want to re-throw the error
+  // or exit the process if the hash is absolutely required.
+  // For now, we'll just log it and use the fallback.
+}
+console.log("--- End Debugging git rev-parse ---");
+
 const buildEnv = process.env.NODE_ENV ?? "production";
 const isProd = buildEnv === "production";
 const port: number = process.env.PORT ? +process.env.PORT : 3003;
@@ -31,6 +56,7 @@ console.log(`Starting rsbuild...
 - port: ${port}
 - backendPort: ${backendPort}
 `);
+console.log("[rsbuild.config.ts] Calculated publicUrl:", publicUrl);
 
 /**
  * Appends a sourceMappingURL for js files in paths, by looking for
@@ -162,11 +188,21 @@ export default defineConfig({
     // We write intermediate files to disk (build/) for debugging,
     // and also because our local host server will serve from there.
     writeToDisk: publicUrl.includes("localhost") ? true : false,
+    // Explicitly configure HMR client connection
+    client: {
+      host: "157.90.224.29", // Use the actual server IP
+      port: String(port), // Port needs to be a string here (default 3003)
+      path: "/rsbuild-hmr", // Default path, but good to be explicit
+      protocol: "ws",
+    },
   },
   server: {
     port,
     proxy: {
       "/api": `http://localhost:${backendPort}`,
+    },
+    headers: {
+      'Access-Control-Allow-Origin': '*'
     },
   },
   source: {
@@ -184,7 +220,7 @@ export default defineConfig({
       css: true,
     },
   },
-  plugins: [pluginReact()],
+  plugins: [pluginReact(), pluginLess(), pluginSass()],
   tools: {
     // We use html-webpack-plugin directly instead of relying in @rsbuild/core
     // html plugin so it works with StudioHtmlPlugin.
@@ -233,7 +269,7 @@ export default defineConfig({
             "static/canvas-packages/build/",
           ],
         }),
-        new FixCssImports(),
+        // new FixCssImports(),
         new HtmlWebpackPlugin({
           template: "../sub/public/static/host.html",
           filename: `static/host.html`,
@@ -266,6 +302,7 @@ export default defineConfig({
             {
               inject: true,
               template: "./public/index.html",
+              base: publicUrl.endsWith('/') ? publicUrl : `${publicUrl}/`,
             },
             buildEnv === "production"
               ? {

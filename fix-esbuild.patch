@@ -1,0 +1,16 @@
+--- esbuild.js.orig
++++ esbuild.js
+@@ -288,12 +288,11 @@
+     
+     // Set up a simple file watcher manually
+     const srcDir = path.join(process.cwd(), 'src');
+-    // fs.watch(srcDir, { recursive: true }, (eventType, filename) => {
++    fs.watch(srcDir, { recursive: true }, (eventType, filename) => {
+       if (filename) {
+         console.log(`File ${filename} changed, rebuilding...`);
+         runClientBuilds();
+       }
+-    });
++    });
+   }
+ } 

@@ -12,6 +12,10 @@ export const getCookies = <T>(name: string) => {
   return cookie ? (JSON.parse(cookie) as T) : undefined
 }
 
-export const setCookies = (name: string, value: any) => Cookies.set(name, JSON.stringify(value), options);
+export const setCookies = (name: string, value: any) => {
+  const stringValue = JSON.stringify(value);
+  console.log(`Setting commercetools cookie: name=${name}, value=${stringValue}`);
+  Cookies.set(name, stringValue, options);
+}
 
 export const removeCookies = (name: string) => Cookies.remove(name);
