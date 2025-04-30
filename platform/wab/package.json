@@ -1,4 +1,4 @@
-{
+	{
   "name": "wab",
   "version": "0.0.1",
   "description": "Plasmic main codebase",
@@ -20,7 +20,7 @@
     "typecheck": "NODE_OPTIONS='--max-old-space-size=16384' tsc --noEmit",
     "host-server": "bash tools/host-server.bash",
     "socket-server": "npm run run-ts -- src/wab/server/app-socket-backend-real.ts",
-    "build": "rsbuild build",
+    "build": "make && rsbuild build",
     "cypress:open": "cypress open",
     "migrate-dev-bundles": "npm run run-ts -- src/wab/server/scripts/dev-bundle-migrator.ts",
     "db:eval-corpus": "npm run run-ts -- src/wab/server/copilot/internal/sandbox/corpus-eval.ts",
