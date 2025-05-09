@@ -13,3 +13,6 @@ for package in packages/loader-angular packages/react-web-runtime platform/host-
 done
 
 nx run-many --target=build
+echo "Running make for platform/wab to generate parser files..." 
+(cd platform/wab && make)                                     
+echo "Finished running make for platform/wab."                 
