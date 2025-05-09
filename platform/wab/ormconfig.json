@@ -1,7 +1,9 @@
 {
   "type": "postgres",
-  "host": "localhost",
+  "host": "coolify-db",
+  "port": 5432,
   "username": "wab",
+  "password": "SEKRET",
   "database": "wab",
 
   "synchronize": false,

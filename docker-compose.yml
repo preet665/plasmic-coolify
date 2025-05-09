@@ -1,0 +1,86 @@
+# /root/plasmic/docker-compose.yml
+version: '3.8'
+
+services:
+  wab-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.coolify
+      target: backend-runtime # Build only up to the backend stage
+    restart: always
+    environment:
+      # --- Configuration for Localhost Docker Compose --- 
+      NODE_ENV: production
+      PORT: 3004
+      # Point to the 'db' service defined below
+      DATABASE_URI: "postgresql://wab:plasmic@db:5432/wab"
+      # Replace with a STRONG, UNIQUE secret for local testing
+      SESSION_SECRET: "local_dev_secret_please_change_me_12345"
+      # Accessible via localhost (port 80 mapped from frontend service)
+      REACT_APP_PUBLIC_URL: "http://localhost"
+      HOST: "http://localhost"
+      # Set other vars to reasonable defaults or disable features if needed
+      # MAIL_CONFIG: '{}' # Example: Disable mail or provide local config
+      # SENTRY_DSN: "" # Example: Disable Sentry
+      # SOCKET_HOST: ... # Likely not needed unless setting up separate socket server
+    # volumes: # Example: Mount patches if needed at runtime
+    #   - ./platform/wab/patches:/app/platform/wab/patches
+    networks:
+      - plasmic-net
+    depends_on: 
+      - db # Wait for db service to be ready (basic check)
+
+  wab-frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.coolify
+      target: frontend-runtime # Build only up to the frontend stage
+    restart: always
+    ports:
+      - "8080:80" # Changed from 80:80 to avoid conflict with traefik
+    depends_on:
+      - wab-backend # Ensure backend starts first (useful but not strictly required for requests)
+    networks:
+      - plasmic-net
+
+  # <<< Define Database Service (Moved under main services key) >>>
+  db:
+    image: postgres:14-alpine # Use a specific version
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/ # Mount named volume
+    environment:
+      POSTGRES_USER: wab
+      POSTGRES_PASSWORD: plasmic # Use the same password expected by backend
+      POSTGRES_DB: wab
+    networks:
+      - plasmic-net
+    restart: always
+    # Optional: Expose port 5432 externally for direct access if needed
+    # ports:
+    #  - "5432:5432"
+
+# <<< Define Network >>>
+networks:
+  plasmic-net:
+    driver: bridge
+
+# <<< Define Volume for DB Data Persistence >>>
+volumes:
+  postgres_data:
+
+# --- Optional: Define Database within Compose (Alternative to Coolify Managed DB) ---
+# Removed duplicate services: key and moved db definition above
+
+# services:
+#   # ... wab-backend and wab-frontend services ...
+#   db:
+#     image: postgres:14-alpine
+#     volumes:
+#       - postgres_data:/var/lib/postgresql/data/
+#     environment:
+#       POSTGRES_USER: wab
+#       POSTGRES_PASSWORD: ${DB_PASSWORD:-password} # Use env var, provide default
+#       POSTGRES_DB: wab
+#     networks:
+#       - plasmic-net
+#     restart: always 

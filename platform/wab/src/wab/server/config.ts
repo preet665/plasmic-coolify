@@ -16,7 +16,7 @@ export interface Config {
 }
 
 export const DEFAULT_DATABASE_URI =
-  "postgresql://wab@localhost/" + (process.env.WAB_DBNAME || "wab");
+  "postgresql://wab@coolify-db/" + (process.env.WAB_DBNAME || "wab");
 
 const DEFAULT_CONFIG: Config = {
   host: getPublicUrl(),
