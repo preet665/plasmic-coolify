@@ -1,48 +1,48 @@
-# Use an official Node.js runtime as a parent image
 FROM node:20-alpine
 
-# Set the working directory in the container
 WORKDIR /app
 
-# Install dependencies needed for native Node modules (node-gyp)
-# - python3 and make are required by node-gyp
-# - g++ (part of build-base) is required for compiling C++ addons
-# - bash was needed by the bootstrap script
-# - py3-setuptools is added for Python 3.12 compatibility with node-gyp
-# - git is needed for some npm/yarn package installations
-# - rsync is added for copying files
 RUN apk add --no-cache python3 make g++ bash py3-setuptools git rsync
 
-# Copy all source code from the context to the working directory
-COPY . .
+ARG USERNAME=preet665
+ARG REPO_NAME=plasmic-coolify
+ARG GIT_BRANCH=master
 
-# Set environment variables
-# WARNING: Avoid hardcoding secrets like passwords directly in the Dockerfile.
-# Consider using build-time arguments (--build-arg) or Docker secrets for production.
-ENV REACT_APP_DEV_HOST_PROXY=http://157.90.224.29:3005
-ENV WAB_PASSWORD=SEKRET
-ENV PGPASSWORD=SEKRET
+ARG DB_HOST_ARG=coolify-db
+ARG DB_USER_ARG=wab
+ARG DB_PASSWORD_ARG=SEKRET
+ARG DB_NAME_ARG=wab
+ARG DB_PORT_ARG=5432
 
-# First install all dependencies at the root level
+ENV PGHOST=$DB_HOST_ARG
+ENV PGPORT=$DB_PORT_ARG
+ENV PGUSER=$DB_USER_ARG
+ENV PGPASSWORD=$DB_PASSWORD_ARG
+ENV PGDATABASE=$DB_NAME_ARG
+ENV WAB_DBNAME=$DB_NAME_ARG
+
+RUN echo "Cloning public repository ${USERNAME}/${REPO_NAME} branch ${GIT_BRANCH}..." && \
+    git clone --branch ${GIT_BRANCH} --single-branch --depth 1 \
+    https://github.com/${USERNAME}/${REPO_NAME}.git . && \
+    echo "Cloning complete."
+
+ENV WAB_PASSWORD=$DB_PASSWORD_ARG
+
 RUN yarn install
 
-# Install dependencies for platform/wab
 RUN cd platform/wab && yarn install
 
-# Ensure specific dependencies are properly installed in packages that need them
 RUN cd platform/sub && yarn install
 
-# Install dependencies for canvas-packages
 RUN cd platform/canvas-packages && yarn install
 
-# Run the bootstrap script which will build all packages
 RUN yarn bootstrap
 
-# Set the working directory for subsequent commands to the 'plasmic' subdirectory
+WORKDIR /app/platform/wab
+RUN bash tools/run.bash src/wab/server/db/DbInit.ts
+
 WORKDIR /app/plasmic
 
-# Expose the necessary ports for the application
 EXPOSE 3003 3004 3005
 
-# Define the default command to run the development server
 CMD ["yarn", "dev"] 
