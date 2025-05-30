@@ -36,7 +36,7 @@ async function stampMigration(em: EntityManager) {
 }
 
 export async function initDb(em: EntityManager) {
-  await em.query("truncate org cascade;");
+  // No need to truncate tables since synchronize() already created fresh empty tables
   await em.query("drop table if exists _project_revision_format_;");
   await stampMigration(em);
 }

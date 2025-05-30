@@ -35,12 +35,17 @@ if (require.main === module) {
 
 async function main() {
   const con = await ensureDbConnection(DEFAULT_DATABASE_URI, "default");
-
+  
   // Run migrations first to ensure database schema exists
   console.log("Running database migrations...");
   await maybeMigrateDatabase();
   console.log("Migrations completed.");
-
+  
+  // Drop and recreate all tables for a clean slate
+  console.log("Synchronizing database schema (dropping and recreating all tables)...");
+  await con.synchronize(true); // true = drop existing schema first
+  console.log("Schema synchronization completed.");
+  
   await con.transaction(async (em) => {
     await initDb(em);
     await seedTestDb(em);
