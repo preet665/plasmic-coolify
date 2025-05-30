@@ -15,8 +15,19 @@ export interface Config {
   port?: number;
 }
 
-export const DEFAULT_DATABASE_URI =
-  "postgresql://wab@coolify-db/" + (process.env.WAB_DBNAME || "wab");
+export const DEFAULT_DATABASE_URI = (() => {
+  const host = process.env.PGHOST || "coolify-db";
+  const port = process.env.PGPORT || "5432";
+  const user = process.env.PGUSER || "wab";
+  const password = process.env.PGPASSWORD || "";
+  const database = process.env.PGDATABASE || process.env.WAB_DBNAME || "wab";
+  
+  if (password) {
+    return `postgresql://${user}:${password}@${host}:${port}/${database}`;
+  } else {
+    return `postgresql://${user}@${host}:${port}/${database}`;
+  }
+})();
 
 const DEFAULT_CONFIG: Config = {
   host: getPublicUrl(),
