@@ -36,6 +36,11 @@ if (require.main === module) {
 async function main() {
   const con = await ensureDbConnection(DEFAULT_DATABASE_URI, "default");
   
+  // Drop the migrations table if it exists with wrong schema
+  console.log("Dropping existing migrations table if it exists...");
+  await con.query("DROP TABLE IF EXISTS migrations;");
+  console.log("Migrations table dropped.");
+  
   // Run migrations first to ensure database schema exists
   console.log("Running database migrations...");
   await maybeMigrateDatabase();
